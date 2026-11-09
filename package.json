@@ -1,0 +1,26 @@
+{
+  "name": "certchain",
+  "version": "1.0.0",
+  "description": "Blockchain-based educational certificate verification (Ethereum + Solidity)",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "node": "hardhat node",
+    "deploy": "hardhat run scripts/deploy.js --network localhost",
+    "seed": "hardhat run scripts/seed.js --network localhost",
+    "check": "hardhat run scripts/check-e2e.js --network localhost",
+    "web": "npx serve frontend -l 3000"
+  },
+  "license": "ISC",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.29.1",
+    "solc": "^0.8.24"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "multer": "^2.5.0"
+  }
+}

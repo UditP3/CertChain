@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CertChain: check a certificate</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #eef1f4;
+    --card: #ffffff;
+    --ink: #14213d;
+    --muted: #5b6577;
+    --line: #d3d9e1;
+    --ok: #17724f;
+    --bad: #b3261e;
+    --warn: #96600a;
+    --focus: #2b5fd9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font: 16px/1.55 "Instrument Sans", system-ui, sans-serif;
+  }
+  main { max-width: 680px; margin: 0 auto; padding: 56px 20px 80px; }
+  h1 { font: 700 2.4rem/1.1 "Source Serif 4", Georgia, serif; margin: 0 0 10px; letter-spacing: -0.01em; }
+  .lede { color: var(--muted); margin: 0 0 32px; max-width: 52ch; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 24px; }
+  .tabs button {
+    background: none; border: 0; padding: 10px 16px; font: 500 1rem "Instrument Sans", sans-serif;
+    color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+  button:focus-visible, input:focus-visible, label:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
+  .panel[hidden] { display: none; }
+  .drop {
+    display: block; background: var(--card); border: 1.5px dashed #9aa5b5; border-radius: 6px;
+    padding: 36px 20px; text-align: center; cursor: pointer; color: var(--muted);
+  }
+  .drop.over { border-color: var(--ink); background: #f8fafc; }
+  .drop input { position: absolute; opacity: 0; pointer-events: none; }
+  .drop strong { color: var(--ink); }
+  .hash { font: 0.82rem/1.5 ui-monospace, Menlo, Consolas, monospace; word-break: break-all; color: var(--muted); margin: 14px 0 0; min-height: 1.5em; }
+  .actions { margin-top: 18px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn {
+    background: var(--ink); color: #fff; border: 0; border-radius: 4px; padding: 11px 20px;
+    font: 600 1rem "Instrument Sans", sans-serif; cursor: pointer;
+  }
+  .btn.ghost { background: transparent; color: var(--ink); border: 1.5px solid var(--ink); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .field { margin-top: 16px; }
+  .field label { display: block; font-weight: 500; margin-bottom: 4px; }
+  .field input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px; font: inherit; background: #fff; }
+  .hint { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
+
+  /* the one memorable element: the verdict stamp */
+  .verdict {
+    margin-top: 28px; border: 2.5px solid currentColor; border-radius: 6px; padding: 18px 22px;
+    background: var(--card); transform: rotate(-0.0deg);
+  }
+  .verdict[hidden] { display: none; }
+  .verdict h2 { font: 700 1.7rem/1.15 "Source Serif 4", Georgia, serif; margin: 0 0 6px; }
+  .verdict p { margin: 2px 0; color: var(--ink); }
+  .verdict.ok { color: var(--ok); } .verdict.bad { color: var(--bad); } .verdict.warn { color: var(--warn); }
+  .verdict dl { margin: 12px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; color: var(--ink); font-size: 0.92rem; }
+  .verdict dt { color: var(--muted); }
+  .verdict dd { margin: 0; word-break: break-all; }
+  .status { margin-top: 14px; color: var(--muted); font-size: 0.92rem; min-height: 1.4em; }
+  .status.err { color: var(--bad); }
+  .wallet { color: var(--muted); font-size: 0.92rem; margin-bottom: 8px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .verdict:not([hidden]) { animation: press 160ms ease-out; }
+    @keyframes press { from { transform: rotate(-0.8deg) scale(1.04); opacity: 0; } to { transform: rotate(-0.8deg) scale(1); opacity: 1; } }
+  }
+  @media (max-width: 480px) { h1 { font-size: 1.9rem; } .verdict dl { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Check a certificate</h1>
+  <p class="lede">Drop the PDF you received. Its fingerprint is computed in your browser and compared with the issuing institution's on-chain record. During registration, certificates are uploaded to IPFS for decentralised storage.</p>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tab-verify" aria-selected="true" aria-controls="panel-verify">Verify</button>
+    <button role="tab" id="tab-issue" aria-selected="false" aria-controls="panel-issue">Issue or revoke</button>
+  </div>
+
+  <!-- VERIFY -->
+  <section class="panel" id="panel-verify" role="tabpanel" aria-labelledby="tab-verify">
+    <label class="drop" id="drop-verify">
+      <input type="file" id="file-verify" accept="application/pdf,.pdf">
+      <strong>Choose a certificate PDF</strong> or drop it here
+    </label>
+    <p class="hash" id="hash-verify"></p>
+    <div class="actions"><button class="btn" id="btn-verify" disabled>Verify certificate</button></div>
+    <div class="status" id="status-verify" aria-live="polite"></div>
+    <div class="verdict" id="verdict" hidden></div>
+  </section>
+
+  <!-- ISSUE -->
+  <section class="panel" id="panel-issue" role="tabpanel" aria-labelledby="tab-issue" hidden>
+    <div class="wallet" id="wallet">Wallet not connected. Only whitelisted institution wallets can write.</div>
+    <div class="actions"><button class="btn ghost" id="btn-connect">Connect MetaMask</button></div>
+    <label class="drop" id="drop-issue" style="margin-top:18px">
+      <input type="file" id="file-issue" accept="application/pdf,.pdf">
+      <strong>Choose the final certificate PDF</strong> or drop it here
+    </label>
+    <p class="hash" id="hash-issue"></p>
+    <div class="field">
+      <label for="cid">IPFS CID (automatically generated)</label>
+      <input id="cid" placeholder="Generated automatically during registration" readonly>
+      <div class="hint">The PDF is uploaded to public IPFS through Pinata. Do not upload confidential or unencrypted personal certificates.</div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="btn-issue" disabled>Register certificate</button>
+      <button class="btn ghost" id="btn-revoke" disabled>Revoke certificate</button>
+    </div>
+    <div class="status" id="status-issue" aria-live="polite"></div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script src="config.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const cfg = window.CERTCHAIN;
+  const state = {
+    verifyHash: null,
+    issueHash: null,
+    issueFile: null,
+    issueCid: null,
+    uploading: false,
+    signerContract: null
+};
+
+  if (!cfg) {
+    $("status-verify").textContent = "config.js is missing. Run: npx hardhat run scripts/deploy.js --network localhost";
+    $("status-verify").classList.add("err");
+    return;
+  }
+
+  // read-only contract: needs no wallet, so any employer can verify
+  const readContract = new ethers.Contract(cfg.address, cfg.abi, new ethers.JsonRpcProvider(cfg.rpc));
+
+  // ---------- tabs ----------
+  for (const name of ["verify", "issue"]) {
+    $("tab-" + name).addEventListener("click", () => {
+      for (const n of ["verify", "issue"]) {
+        $("tab-" + n).setAttribute("aria-selected", String(n === name));
+        $("panel-" + n).hidden = n !== name;
+      }
+    });
+  }
+
+  // ---------- hashing: SHA-256 of the exact file bytes ----------
+  async function sha256Hex(file) {
+    const buf = await file.arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", buf);
+    return "0x" + [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+
+  function wireDrop(kind, onHash) {
+    const input = $("file-" + kind), drop = $("drop-" + kind);
+
+    const handle = async (file) => {
+      if (!file) return;
+
+      try {
+        const h = await sha256Hex(file);
+
+        $("hash-" + kind).textContent =
+          file.name + "\nSHA-256: " + h;
+
+        $("hash-" + kind).style.whiteSpace = "pre-wrap";
+
+        onHash(h, file);
+        setStatus(kind, "");
+
+      } catch (e) {
+        console.error("PDF processing error:", e);
+
+        setStatus(
+          kind,
+          "Could not read PDF: " + (e.message || e),
+          true
+        );
+      }
+    };
+
+    // Allow selecting the same PDF again
+    input.addEventListener("click", () => {
+      input.value = "";
+    });
+
+    // Process selected PDF
+    input.addEventListener("change", () => {
+      handle(input.files[0]);
+    });
+
+    // Support drag and drop
+    drop.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      drop.classList.add("over");
+    });
+
+    drop.addEventListener("dragleave", () => {
+      drop.classList.remove("over");
+    });
+
+    drop.addEventListener("drop", (e) => {
+      e.preventDefault();
+      drop.classList.remove("over");
+      handle(e.dataTransfer.files[0]);
+    });
+  }
+
+
+  // ---------- verify ----------
+  wireDrop("verify", (h) => {
+    state.verifyHash = h;
+    $("btn-verify").disabled = false;
+    $("verdict").hidden = true;
+    setStatus("verify", "");
+  });
+
+  function setStatus(kind, msg, isErr) {
+    const el = $("status-" + kind);
+    el.textContent = msg;
+    el.classList.toggle("err", !!isErr);
+  }
+
+  function fmtDate(sec) { return new Date(Number(sec) * 1000).toLocaleString(); }
+
+  $("btn-verify").addEventListener("click", async () => {
+    setStatus("verify", "Checking the registry...");
+    try {
+      const [exists, revoked, issuer, issuedAt, cid] = await readContract.verify(state.verifyHash);
+      const box = $("verdict");
+      box.hidden = false;
+      setStatus("verify", "");
+      if (!exists) {
+        box.className = "verdict bad";
+        box.innerHTML = "<h2>Not found in the registry</h2><p>This exact file was never registered. It may be fake, or it may have been altered after issue (even one byte changes the fingerprint).</p>";
+      } else if (revoked) {
+        box.className = "verdict warn";
+        box.innerHTML = "<h2>Revoked by the issuer</h2><p>This certificate was genuine but the institution has withdrawn it.</p>" + details(issuer, issuedAt, cid);
+      } else {
+        box.className = "verdict ok";
+        box.innerHTML = "<h2>Registered and unaltered</h2><p>This file matches a record written by the issuer below.</p>" + details(issuer, issuedAt, cid);
+      }
+    } catch (e) {
+      setStatus("verify", "Could not reach the chain. Is the local node running? (" + (e.shortMessage || e.message) + ")", true);
+    }
+  });
+
+  function details(issuer, issuedAt, cid) {
+    return "<dl><dt>Issuer wallet</dt><dd>" + issuer + "</dd><dt>Registered</dt><dd>" + fmtDate(issuedAt) + "</dd>" +
+      (cid ? "<dt>IPFS CID</dt><dd>" + cid.replace(/[<>&]/g, "") + "</dd>" : "") + "</dl>";
+  }
+
+  // ---------- issue / revoke ----------
+  wireDrop("issue", (h, file) => {
+    state.issueHash = h;
+    state.issueFile = file;
+
+    // Reset previous IPFS upload when a new PDF is selected
+    state.issueCid = null;
+    $("cid").value = "";
+
+    refreshIssueButtons();
+  });
+
+  function refreshIssueButtons() {
+    const ready = !!(state.signerContract && state.issueHash);
+
+    $("btn-issue").disabled =
+        !ready || !state.issueFile || state.uploading;
+
+    $("btn-revoke").disabled = !ready;
+  }
+
+  $("btn-connect").addEventListener("click", async () => {
+    if (!window.ethereum) { setStatus("issue", "MetaMask not found. Install it, then reload.", true); return; }
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      await provider.send("eth_requestAccounts", []);
+      const net = await provider.getNetwork();
+      if (Number(net.chainId) !== cfg.chainId) {
+        setStatus("issue", "Switch MetaMask to the local network (chain id " + cfg.chainId + ", RPC " + cfg.rpc + ").", true);
+        return;
+      }
+      const signer = await provider.getSigner();
+      const addr = await signer.getAddress();
+      const allowed = await readContract.isIssuer(addr);
+      state.signerContract = new ethers.Contract(cfg.address, cfg.abi, signer);
+      $("wallet").textContent = "Connected: " + addr + (allowed ? " (authorised issuer)" : " (not an authorised issuer; writes will fail)");
+      setStatus("issue", "");
+      refreshIssueButtons();
+    } catch (e) {
+      setStatus("issue", e.shortMessage || e.message, true);
+    }
+  });
+
+  const friendly = {
+    NotIssuer: "This wallet is not a whitelisted issuer.",
+    AlreadyIssued: "This exact file is already registered.",
+    NotFound: "This file was never registered, so there is nothing to revoke.",
+    AlreadyRevoked: "Already revoked.",
+    NotOriginalIssuer: "Only the institution that registered it can revoke it.",
+  };
+
+  
+  async function uploadToIPFS(file) {
+      const formData = new FormData();
+
+      formData.append("file", file);
+
+      const response = await fetch(
+          "http://localhost:3001/api/upload",
+          {
+              method: "POST",
+              body: formData
+          }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success || !result.cid) {
+          throw new Error(
+              result.error || "IPFS upload failed."
+          );
+      }
+
+      return result.cid;
+  }
+
+  
+  async function send(kind, fn, doneMsg) {
+    setStatus("issue", "Waiting for MetaMask confirmation...");
+    try {
+      const tx = await fn();
+      setStatus("issue", "Transaction sent, waiting for the block...");
+      await tx.wait();
+      setStatus("issue", doneMsg);
+    } catch (e) {
+      const name = e.revert && e.revert.name;
+      setStatus("issue", friendly[name] || e.shortMessage || e.message, true);
+    }
+  }
+
+  
+  $("btn-issue").addEventListener("click", async () => {
+      if (!state.issueFile) {
+          setStatus("issue", "Please select a PDF first.", true);
+          return;
+      }
+
+      state.uploading = true;
+      refreshIssueButtons();
+
+      try {
+          // Upload to IPFS only if we haven't uploaded this PDF yet
+          if (!state.issueCid) {
+              setStatus("issue", "Uploading PDF to IPFS...");
+
+              state.issueCid = await uploadToIPFS(state.issueFile);
+
+              $("cid").value = state.issueCid;
+          }
+
+          // Register fingerprint and CID on the blockchain
+          await send(
+              "issue",
+              () => state.signerContract.issue(
+                  state.issueHash,
+                  state.issueCid
+              ),
+              "Registered successfully! Certificate and IPFS CID are now recorded on-chain."
+          );
+
+      } catch (e) {
+          setStatus(
+              "issue",
+              e.message || String(e),
+              true
+          );
+      } finally {
+          state.uploading = false;
+          refreshIssueButtons();
+      }
+  });
+
+  $("btn-revoke").addEventListener("click", () =>
+    send("issue", () => state.signerContract.revoke(state.issueHash), "Revoked. Verifiers will now see it as withdrawn."));
+})();
+</script>
+</body>
+</html>
